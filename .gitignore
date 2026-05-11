@@ -1,0 +1,4 @@
+requirements
+.venv/*
+_pycache_
+*.db
