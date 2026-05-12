@@ -3,10 +3,10 @@ from pydantic import BaseModel, Field
 import ollama
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
-
 # Importamos las funciones desde tus otros archivos
 from database import init_db, registrar_log
 from subtemas import SUBTEMAS_VALIDOS
+from models import ChatRequest, ChatResponse
 
 app = FastAPI(title="Chatbot Pedagógico UNRaf")
 # Inicializamos la DB al arrancar
@@ -45,7 +45,7 @@ Reglas obligatorias:
 # Usamos el ejecutor para no bloquear el bucle de eventos de FastAPI
 executor = ThreadPoolExecutor(max_workers=3)
 
-@app.post("/chat")
+@app.post("/chat", response_model=ChatResponse)
 async def chat_endpoint(request: ChatRequest):
     loop = asyncio.get_event_loop()
     
@@ -83,10 +83,10 @@ async def chat_endpoint(request: ChatRequest):
         # pero lo mandamos al executor para no bloquear el retorno al usuario
         loop.run_in_executor(executor, registrar_log, request, tema_detectado, respuesta_final)
         
-        return {
-            "tema": tema_detectado,
-            "respuesta": respuesta_final
-        }
+        return ChatResponse(
+            tema = tema_detectado,
+            respuesta = respuesta_final
+        )
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error en el motor de IA: {str(e)}")
