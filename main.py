@@ -1,73 +1,97 @@
 from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 import ollama
-import sqlite3
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime
+
+# Importamos las funciones desde tus otros archivos
+from database import init_db, registrar_log
 from subtemas import SUBTEMAS_VALIDOS
 
-app = FastAPI(title="Chatbot Pedagógico UNRaf - Detección Automática")
+app = FastAPI(title="Chatbot Pedagógico UNRaf")
+# Inicializamos la DB al arrancar
+@app.on_event("startup")
+def startup_event():
+    init_db()
 
-# Esquema simplificado: el subtema ya no es obligatorio enviarlo
 class ChatRequest(BaseModel):
     user_id: str
     course_id: str
     role: str
-    pregunta: str  # El usuario solo envía la duda
+    pregunta: str
+    confidence: int = Field(..., ge=1, le=3)
 
-def clasificar_pregunta(pregunta_usuario: str):
-    """
-    Usa Ollama para determinar a qué subtema pertenece la pregunta.
-    """
-    prompt_clasificador = f"""
-    Eres un clasificador de temas de Análisis Matemático. 
-    Tu lista de temas permitidos es: {", ".join(SUBTEMAS_VALIDOS)}
-    
-    Analiza la siguiente pregunta del alumno: "{pregunta_usuario}"
-    
-    Responde ÚNICAMENTE con el nombre del tema de la lista que mejor se relacione. 
-    Si la pregunta no tiene nada que ver con Análisis Matemático o con estos temas, responde "FUERA_DE_ESTRUCTURA".
-    No des explicaciones, solo el nombre del tema.
-    """
-    
-    response = ollama.generate(model='phi3', prompt=prompt_clasificador)
-    tema_detectado = response['response'].strip()
-    return tema_detectado
+# Limitamos hilos para no saturar el CPU con la IA local
+executor = ThreadPoolExecutor(max_workers=3)
 
-# Crear un ejecutor para que Ollama corra en un hilo separado
+def generar_system_prompt(confidence):
+    base_prompt = """Eres un profesor universitario argentino de matemáticas, riguroso, paciente y preciso.
+Tu tarea es ayudar al estudiante utilizando exclusivamente la información contenida en el contexto proporcionado.
+Reglas obligatorias:
+1. No utilices conocimientos externos al contexto. 
+2. No agregues resultados no justificados. 
+3. Si la respuesta no puede deducirse del material dado, debes decir exactamente: "No puedo responder a esto basándome en el material proporcionado." 
+4. No inventes pasos ni resultados. 
+5. Si el problema requiere cálculo, explicita primero la estrategia antes de ejecutar el procedimiento."""
+
+    niveles = {
+        1: "\nNivel 1 (básico): Explica definiciones, paso a paso detallado, justifica cada transformación y pregunta de control final.",
+        2: "\nNivel 2 (intermedio): Enuncia idea clave y estrategia, resuelve sin detalles elementales, señala errores frecuentes.",
+        3: "\nNivel 3 (avanzado): Directo a la estrategia, justificaciones sintéticas, incluye equivalencias formales."
+    }
+
+    return f"{base_prompt}{niveles[confidence]}\nRespuestas formales y sin motivaciones innecesarias."
+
+# Usamos el ejecutor para no bloquear el bucle de eventos de FastAPI
 executor = ThreadPoolExecutor(max_workers=3)
 
 @app.post("/chat")
 async def chat_endpoint(request: ChatRequest):
     loop = asyncio.get_event_loop()
+    
+    # 1. Clasificación asíncrona
+    # Usamos args en run_in_executor para pasar parámetros de forma limpia
+    tema_detectado = await loop.run_in_executor(executor, clasificar_pregunta, request.pregunta)
+    
+    # 2. Validación de seguridad
+    if "FUERA_DE_ESTRUCTURA" in tema_detectado:
+        return {"respuesta": "No puedo responder a esto basándome en el material proporcionado."}
+
+    # 3. Preparación del Prompt
+    system_content = generar_system_prompt(request.confidence)
+    contexto_prueba = "Material de cátedra: La derivada de una constante es cero..."
+    full_prompt = f"CONTEXTO:\n{contexto_prueba}\n\nPREGUNTA: {request.pregunta}"
+
+    # 4. Ejecución de la IA
     try:
-        # Prompt ultra-corto para que Phi-3 no de vueltas
-        prompt = f"Pregunta: {request.pregunta}. Clasifica el subtema de Análisis Matemático y responde como tutor breve."
+        # Definimos una función interna para la llamada a Ollama
+        def call_ollama():
+            return ollama.chat(
+                model='phi3',
+                messages=[
+                    {'role': 'system', 'content': system_content},
+                    {'role': 'user', 'content': full_prompt},
+                ],
+                options={'temperature': 0}
+            )
+
+        response = await loop.run_in_executor(executor, call_ollama)
+        respuesta_final = response['message']['content']
         
-        # Ejecutamos Ollama de forma que FastAPI no se sienta "colgado"
-        response = await loop.run_in_executor(
-            executor, 
-            lambda: ollama.generate(model='phi3', prompt=prompt)
-        )
+        # 5. Registro en DB usando tu archivo database.py
+        # No hace falta await aquí si no es una función asíncrona, 
+        # pero lo mandamos al executor para no bloquear el retorno al usuario
+        loop.run_in_executor(executor, registrar_log, request, tema_detectado, respuesta_final)
         
-        respuesta_ia = response['response']
-        
-        # Registrar Log
-        registrar_en_db(request, "Detección Automática", respuesta_ia)
-        
-        return {"respuesta": respuesta_ia}
+        return {
+            "tema": tema_detectado,
+            "respuesta": respuesta_final
+        }
 
     except Exception as e:
-        print(f"Error detectado: {e}")
-        return {"respuesta": "El servidor está procesando. Por favor, reintentá el envío."}
+        raise HTTPException(status_code=500, detail=f"Error en el motor de IA: {str(e)}")
 
-def registrar_en_db(req, tema, resp):
-    conn = sqlite3.connect("logs_pedagogicos.db")
-    cursor = conn.cursor()
-    cursor.execute("""
-        INSERT INTO chat_logs (user_id, course_id, role, subtema, pregunta, respuesta, timestamp)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-    """, (req.user_id, req.course_id, req.role, tema, req.pregunta, resp, datetime.utcnow().isoformat()))
-    conn.commit()
-    conn.close()
+def clasificar_pregunta(pregunta):
+    prompt = f"Clasifica: {pregunta} en {SUBTEMAS_VALIDOS} o FUERA_DE_ESTRUCTURA. Solo el nombre."
+    response = ollama.generate(model='phi3', prompt=prompt)
+    return response['response'].strip().split('\n')[0]
