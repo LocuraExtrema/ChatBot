@@ -1,4 +1,5 @@
 from fastapi import FastAPI, HTTPException
+import hashlib
 from pydantic import BaseModel, Field
 import shutil
 import os
@@ -15,6 +16,10 @@ from database import init_db, registrar_log
 from subtemas import SUBTEMAS_VALIDOS
 from models import ChatRequest, ChatResponse
 from external_api import buscar_en_openstax
+
+def hashear_usuario(username: str):
+    # Convertimos el nombre a bytes, lo pasamos por SHA-256 y obtenemos el hex
+    return hashlib.sha256(username.encode()).hexdigest()
 
 app = FastAPI(title="Chatbot Pedagógico UNRaf")
 # Inicializamos la DB al arrancar
@@ -59,17 +64,22 @@ executor = ThreadPoolExecutor(max_workers=3)
 @app.post("/chat", response_model=ChatResponse)
 async def chat_endpoint(request: ChatRequest):
     loop = asyncio.get_event_loop()
-    print("1. Petición recibida...")
-    print(f"2. Buscando tema: {request.pregunta}")
-    # 1. Clasificar el tema para saber qué buscar en OpenStax
+    
+    # --- PROCESO DE HASHING ---
+    # Hasheamos el user_id (o username) que viene de Moodle
+    print(f"1. Petición recibida de: {request.user_id}")
+
+    request.user_id = hashear_usuario(request.user_id)
+    
+    print(f"2. Guardando actividad bajo hash: {request.user_id}")
+    
+    # --- LÓGICA DE PROCESAMIENTO ---
+    print(f"3. Clasificando tema...")
     tema_detectado = await loop.run_in_executor(executor, clasificar_pregunta, request.pregunta)
     
-    print("3. Consultando OpenStax...")
-    # 2. Obtener contexto de OpenStax basado en el tema o la pregunta
-    # Ejecutamos la API en el executor para no bloquear el servidor
+    print("4. Consultando OpenStax...")
     contexto_web = await loop.run_in_executor(executor, buscar_en_openstax, tema_detectado)
 
-    # 3. Preparar el Prompt para Phi-3 con la info de la página
     system_content = generar_system_prompt(request.confidence)
     full_prompt = f"""
     CONTEXTO ACADÉMICO (OpenStax):
@@ -77,12 +87,9 @@ async def chat_endpoint(request: ChatRequest):
     
     PREGUNTA DEL ESTUDIANTE:
     {request.pregunta}
-    
-    Instrucción: Responde como un profesor usando el contexto académico proveído. 
-    Si la información no es suficiente, usa tu conocimiento base pero prioriza el contexto.
     """
-    print("4. Llamando a Ollama")
-    # 4. Respuesta de la IA
+    
+    print("5. Llamando a Ollama (CPU Mode)...")
     try:
         def call_ollama():
             return ollama.chat(
@@ -97,12 +104,21 @@ async def chat_endpoint(request: ChatRequest):
         response = await loop.run_in_executor(executor, call_ollama)
         respuesta_final = response['message']['content']
         
-        # 5. Registro en DB (para auditoría de la UNRaf)
-        loop.run_in_executor(executor, registrar_log, request, tema_detectado, respuesta_final)
+        # --- REGISTRO EN DB ---
+        # IMPORTANTE: Pasamos el usuario_anonimo a la función de registro
+        # Deberás modificar registrar_log en database.py para que use este hash
+        await loop.run_in_executor(
+            executor, 
+            registrar_log, 
+            request,
+            tema_detectado, 
+            respuesta_final
+        )
         
         return ChatResponse(tema=tema_detectado, respuesta=respuesta_final)
 
     except Exception as e:
+        print(f"ERROR: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 def clasificar_pregunta(pregunta):
