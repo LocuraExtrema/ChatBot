@@ -3,11 +3,6 @@ import hashlib
 from pydantic import BaseModel, Field
 import shutil
 import os
-# Forzamos a que el sistema reconozca la arquitectura RDNA2 de la RX 6600
-os.environ["HSA_OVERRIDE_GFX_VERSION"] = "10.3.0"
-
-# Opcional: Forzar a Ollama a usar la GPU si hay múltiples dispositivos
-os.environ["OLLAMA_GPU_OVERHEAD"] = "1"
 import ollama
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
@@ -15,7 +10,10 @@ from concurrent.futures import ThreadPoolExecutor
 from database import init_db, registrar_log
 from subtemas import SUBTEMAS_VALIDOS
 from models import ChatRequest, ChatResponse
-from external_api import buscar_en_openstax
+from busqueda_local import buscar_en_pdf
+
+# Usamos el ejecutor para no bloquear el bucle de eventos de FastAPI
+executor = ThreadPoolExecutor(max_workers=3)
 
 def hashear_usuario(username: str):
     # Convertimos el nombre a bytes, lo pasamos por SHA-256 y obtenemos el hex
@@ -58,42 +56,63 @@ Reglas obligatorias:
 
     return f"{base_prompt}{niveles[confidence]}\nRespuestas formales y sin motivaciones innecesarias."
 
-# Usamos el ejecutor para no bloquear el bucle de eventos de FastAPI
-executor = ThreadPoolExecutor(max_workers=3)
+def clasificar_pregunta(pregunta):
+    prompt = f"Clasifica: {pregunta} en {SUBTEMAS_VALIDOS} o FUERA_DE_ESTRUCTURA. Solo el nombre."
+    response = ollama.generate(model='phi3', prompt=prompt)
+    return response['response'].strip().split('\n')[0]
 
 @app.post("/chat", response_model=ChatResponse)
 async def chat_endpoint(request: ChatRequest):
     loop = asyncio.get_event_loop()
     
-    # --- PROCESO DE HASHING ---
-    # Hasheamos el user_id (o username) que viene de Moodle
     print(f"1. Petición recibida de: {request.user_id}")
 
+    # --- PROCESO DE HASHING ---
     request.user_id = hashear_usuario(request.user_id)
-    
     print(f"2. Guardando actividad bajo hash: {request.user_id}")
     
     # --- LÓGICA DE PROCESAMIENTO ---
     print(f"3. Clasificando tema...")
     tema_detectado = await loop.run_in_executor(executor, clasificar_pregunta, request.pregunta)
     
-    print("4. Consultando OpenStax...")
-    contexto_web = await loop.run_in_executor(executor, buscar_en_openstax, tema_detectado)
+    # --- LIMPIEZA Y TRADUCCIÓN PARA BÚSQUEDA ---
+    if isinstance(tema_detectado, set):
+        tema_para_buscar = list(tema_detectado)[0]
+    else:
+        tema_para_buscar = tema_detectado
+
+    # Limpiamos el tema de caracteres raros antes de traducir/buscar
+    tema_para_buscar = str(tema_para_buscar).replace("{", "").replace("}", "").replace("'", "").strip()
+
+    # --- BÚSQUEDA LOCAL EN PDF (RAG) ---
+    # La función 'buscar_en_pdf' ahora recibirá el tema y ella misma 
+    # se encargará de pedirle a Ollama la traducción rápida.
+    print(f"4. Consultando PDF local (Traduciendo '{tema_para_buscar}' al inglés)...")
+    contexto_pdf = await loop.run_in_executor(executor, buscar_en_pdf, tema_para_buscar)
 
     system_content = generar_system_prompt(request.confidence)
-    full_prompt = f"""
-    CONTEXTO ACADÉMICO (OpenStax):
-    {contexto_web}
     
-    PREGUNTA DEL ESTUDIANTE:
-    {request.pregunta}
-    """
+    # --- CONSTRUCCIÓN DEL PROMPT MULTILINGÜE ---
+    if contexto_pdf:
+        fuente_info = "PDF LOCAL (Inglés)"
+        # Le indicamos explícitamente a Phi-3 que lea inglés pero responda en español
+        full_prompt = f"""
+        TECHNICAL CONTEXT (From English Textbook):
+        {contexto_pdf}
+        
+        INSTRUCCIÓN: Utiliza el contexto anterior en inglés para responder la duda del alumno en ESPAÑOL.
+        PREGUNTA DEL ESTUDIANTE: {request.pregunta}
+        """
+    else:
+        fuente_info = "CONOCIMIENTO GENERAL"
+        full_prompt = request.pregunta
     
-    print("5. Llamando a Ollama (CPU Mode)...")
+    print(f"5. Llamando a Ollama (Modo: {fuente_info})...")
+    
     try:
         def call_ollama():
             return ollama.chat(
-                model='phi3',
+                model='phi3', 
                 messages=[
                     {'role': 'system', 'content': system_content},
                     {'role': 'user', 'content': full_prompt},
@@ -105,8 +124,6 @@ async def chat_endpoint(request: ChatRequest):
         respuesta_final = response['message']['content']
         
         # --- REGISTRO EN DB ---
-        # IMPORTANTE: Pasamos el usuario_anonimo a la función de registro
-        # Deberás modificar registrar_log en database.py para que use este hash
         await loop.run_in_executor(
             executor, 
             registrar_log, 
@@ -115,13 +132,9 @@ async def chat_endpoint(request: ChatRequest):
             respuesta_final
         )
         
+        print(f"6. Respuesta enviada. Fuente: {fuente_info}")
         return ChatResponse(tema=tema_detectado, respuesta=respuesta_final)
 
     except Exception as e:
         print(f"ERROR: {e}")
         raise HTTPException(status_code=500, detail=str(e))
-
-def clasificar_pregunta(pregunta):
-    prompt = f"Clasifica: {pregunta} en {SUBTEMAS_VALIDOS} o FUERA_DE_ESTRUCTURA. Solo el nombre."
-    response = ollama.generate(model='phi3', prompt=prompt)
-    return response['response'].strip().split('\n')[0]
