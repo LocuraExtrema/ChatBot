@@ -12,4 +12,16 @@ export default defineConfig({
   tanstackStart: {
     server: { entry: "server" },
   },
+  // Inyectamos la configuración nativa de Vite para desviar el tráfico al puerto 8000 de tu FastAPI
+  vite: {
+    server: {
+      proxy: {
+        '/api': {
+          target: 'http://localhost:8000',
+          changeOrigin: true,
+          secure: false,
+        }
+      }
+    }
+  }
 });

@@ -1,92 +1,130 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { useEffect, useRef, useState } from "react";
 import { Icon } from "@/components/Icon";
-import { AppHeader, BottomNav } from "@/components/AppShell";
 
 export const Route = createFileRoute("/")({
-  component: Welcome,
   head: () => ({
     meta: [
-      { title: "EduBot — Tu tutor inteligente y privado" },
+      { title: "Faro UNRaf — Inicio" },
       {
         name: "description",
         content:
-          "Apoyo académico inmediato y 100% anónimo. Aprende sin presiones con EduBot.",
+          "Tu guía inteligente para navegar la vida universitaria. Comenzá tu trayectoria con Faro UNRaf.",
+      },
+      { property: "og:title", content: "Faro UNRaf — Inicio" },
+      {
+        property: "og:description",
+        content: "Recursos, orientación académica y respuestas instantáneas.",
       },
     ],
   }),
+  component: Portada,
 });
 
-function Welcome() {
+function Portada() {
+  const navigate = useNavigate();
+  const [loading, setLoading] = useState(false);
+  const beamRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const onMove = (e: MouseEvent) => {
+      if (!beamRef.current) return;
+      const x = (e.clientX / window.innerWidth) * 100;
+      const y = (e.clientY / window.innerHeight) * 100;
+      beamRef.current.style.background = `radial-gradient(circle at ${x}% ${y}%, rgba(0, 169, 198, 0.10) 0%, transparent 55%)`;
+    };
+    window.addEventListener("mousemove", onMove);
+    return () => window.removeEventListener("mousemove", onMove);
+  }, []);
+
+  const start = () => {
+    setLoading(true);
+    setTimeout(() => navigate({ to: "/chatbot" }), 700);
+  };
+
   return (
-    <div className="min-h-screen flex flex-col bg-background">
-      <AppHeader />
-      <main className="flex-grow flex items-center justify-center px-margin-mobile pt-32 pb-24">
-        <div className="max-w-[768px] w-full flex flex-col items-center text-center">
-          <div className="mb-lg relative">
-            <div className="absolute inset-0 bg-primary-container blur-3xl opacity-20 rounded-full" />
-            <div className="relative bg-surface-container-lowest p-xl rounded-full shadow-[var(--shadow-elev-2)] border border-outline-variant/30">
+    <main className="relative h-screen w-full overflow-hidden flex flex-col items-center justify-center px-6 bg-surface">
+      <div
+        ref={beamRef}
+        aria-hidden
+        className="pointer-events-none absolute inset-0 z-0"
+        style={{
+          background:
+            "radial-gradient(circle at 50% 50%, rgba(0, 169, 198, 0.08) 0%, transparent 60%)",
+        }}
+      />
+      {/* Decorative concentric rings = lighthouse beam */}
+      <div
+        aria-hidden
+        className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[120vmin] h-[120vmin] rounded-full opacity-40 z-0"
+        style={{
+          background:
+            "radial-gradient(circle, transparent 35%, rgba(120,143,222,0.10) 36%, transparent 38%, transparent 55%, rgba(0,104,122,0.06) 56%, transparent 58%)",
+        }}
+      />
+
+      <div className="relative z-10 flex flex-col items-center max-w-3xl text-center animate-in fade-in zoom-in-95 duration-1000">
+        {/* Logo / Lighthouse mark */}
+        <div className="mb-10 flex flex-col items-center">
+          <div className="relative w-28 h-28 mb-6 grid place-items-center">
+            <div className="absolute inset-0 rounded-full bg-secondary/15 blur-2xl" />
+            <div className="relative w-24 h-24 rounded-full bg-primary text-on-primary grid place-items-center floating-shadow">
               <Icon
-                name="smart_toy"
-                className="text-primary"
-                style={{ fontSize: 80, lineHeight: 1 }}
-                fill
+                name="light_mode"
+                filled
+                className="text-[44px] text-tertiary-fixed-dim"
               />
             </div>
           </div>
-          <h2 className="font-display-lg text-display-lg text-on-surface mb-md">
-            Tu tutor inteligente y privado
-          </h2>
-          <p className="font-body-lg text-body-lg text-on-surface-variant mb-lg max-w-[600px]">
-            Aprende sin presiones. Nuestro sistema está diseñado para ofrecerte
-            apoyo académico inmediato manteniendo tu identidad totalmente
-            protegida.
+          <h1 className="text-5xl md:text-7xl font-extrabold text-primary tracking-tight leading-[1.05]">
+            Faro <span className="text-secondary">UNRaf</span>
+          </h1>
+          <p className="mt-3 text-[13px] font-semibold tracking-[0.3em] text-on-surface-variant uppercase">
+            Guidance through Clarity
           </p>
-
-          <div className="w-full max-w-[400px] mb-xl p-md bg-surface-container-lowest rounded-xl shadow-[var(--shadow-elev-1)] border border-outline-variant/20">
-            <div className="flex items-center justify-center gap-sm mb-xs">
-              <Icon name="shield_person" className="text-primary" />
-              <span className="font-label-md text-label-md text-on-surface uppercase tracking-wider">
-                Identidad Asignada
-              </span>
-            </div>
-            <div className="bg-inverse-surface text-inverse-on-surface py-sm px-lg rounded-lg inline-block">
-              <p className="font-headline-md text-headline-md">Usuario #134</p>
-            </div>
-            <p className="mt-sm font-label-md text-label-md text-on-surface-variant italic">
-              "El sistema es 100% anónimo para que te sientas seguro preguntando
-              cualquier cosa."
-            </p>
-          </div>
-
-          <Link
-            to="/chat"
-            className="group bg-primary-container text-on-primary-container px-xl py-md rounded-xl font-headline-md text-headline-md shadow-[var(--shadow-elev-2)] hover:shadow-[0_12px_32px_rgba(0,0,0,0.12)] active:scale-95 transition-all duration-200 flex items-center gap-md"
-          >
-            Comenzar Chat
-            <Icon
-              name="arrow_forward"
-              className="group-hover:translate-x-1 transition-transform"
-            />
-          </Link>
-
-          <div className="mt-lg flex flex-wrap justify-center gap-md">
-            {[
-              { icon: "lock", label: "Privacidad Total" },
-              { icon: "history_edu", label: "Sin Registro" },
-              { icon: "verified", label: "Solo para Estudiantes" },
-            ].map((f) => (
-              <div
-                key={f.label}
-                className="flex items-center gap-xs text-on-surface-variant font-label-md text-label-md"
-              >
-                <Icon name={f.icon} style={{ fontSize: 18 }} />
-                {f.label}
-              </div>
-            ))}
-          </div>
         </div>
-      </main>
-      <BottomNav />
-    </div>
+
+        <p className="max-w-xl text-on-surface-variant text-lg leading-relaxed mb-12">
+          Tu guía inteligente para navegar la vida universitaria. Encontrá recursos,
+          orientación académica y respuestas instantáneas en un solo lugar.
+        </p>
+
+        <button
+          onClick={start}
+          disabled={loading}
+          className="group inline-flex items-center gap-3 bg-primary text-on-primary font-bold text-xl md:text-2xl px-10 py-5 rounded-2xl floating-shadow transition-all duration-300 hover:-translate-y-1 hover:scale-[1.03] active:scale-[0.98] disabled:opacity-80"
+        >
+          {loading ? (
+            <>
+              <Icon name="progress_activity" className="animate-spin" />
+              Cargando...
+            </>
+          ) : (
+            <>
+              COMENZAR
+              <Icon
+                name="arrow_forward"
+                className="transition-transform group-hover:translate-x-1"
+              />
+            </>
+          )}
+        </button>
+      </div>
+
+      <footer className="absolute bottom-6 left-0 right-0 z-10 flex justify-center items-center gap-2 text-on-surface-variant/70">
+        <Icon name="school" className="text-[18px]" />
+        <span className="text-[12px] font-semibold tracking-[0.25em]">
+          UNIVERSIDAD NACIONAL DE RAFAELA
+        </span>
+      </footer>
+
+      {/* Transition overlay */}
+      <div
+        className={
+          "fixed inset-0 z-[100] bg-primary transition-transform duration-700 ease-in-out " +
+          (loading ? "translate-y-0" : "translate-y-full")
+        }
+      />
+    </main>
   );
 }
