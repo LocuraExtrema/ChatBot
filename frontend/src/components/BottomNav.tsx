@@ -11,13 +11,19 @@ const baseItems = [
 export function BottomNav() {
   const { pathname } = useLocation();
   const { user } = useLti();
+
+  // 🌟 Al activarse Instructor, añadimos tanto "Auditoría" como "Ver Feedbacks"
   const items =
     user.role === "Instructor"
-      ? [...baseItems, { to: "/profesor", label: "Auditoría", icon: "reviews" } as const]
+      ? [
+          ...baseItems, 
+          { to: "/profesor", label: "Auditoría", icon: "reviews" } as const,
+          { to: "/visualizarfeedback", label: "Historial", icon: "rate_review" } as const // 👈 NUEVO ACCESO MANUAL MÓVIL
+        ]
       : baseItems;
 
   return (
-    <nav className="md:hidden fixed bottom-0 left-0 w-full z-50 bg-surface-container-lowest flex justify-around items-center px-2 py-2 rounded-t-2xl shadow-[0_-8px_24px_-12px_rgba(0,18,67,0.12)] border-t border-outline-variant/30">
+    <nav className="md:hidden fixed bottom-0 left-0 w-full z-50 bg-surface-container-lowest flex justify-around items-center px-1 py-2 rounded-t-2xl shadow-[0_-8px_24px_-12px_rgba(0,18,67,0.12)] border-t border-outline-variant/30">
       {items.map((item) => {
         const active = pathname === item.to;
         return (
@@ -25,14 +31,14 @@ export function BottomNav() {
             key={item.to}
             to={item.to}
             className={
-              "flex items-center justify-center gap-1.5 transition-all active:scale-90 " +
+              "flex items-center justify-center gap-1 transition-all active:scale-90 " +
               (active
-                ? "bg-secondary-container text-on-secondary-container rounded-full px-4 py-2"
-                : "flex-col text-on-surface-variant px-3 py-1 hover:text-secondary")
+                ? "bg-secondary-container text-on-secondary-container rounded-full px-3 py-2"
+                : "flex-col text-on-surface-variant px-2 py-1 hover:text-secondary")
             }
           >
             <Icon name={item.icon} filled={active} />
-            <span className="text-[12px] font-semibold tracking-wide">
+            <span className="text-[11px] font-semibold tracking-wide">
               {item.label}
             </span>
           </Link>

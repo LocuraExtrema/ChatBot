@@ -13,25 +13,30 @@ export function AppHeader({ anonymousId }: { anonymousId?: string }) {
   const { user, setUser } = useLti();
   const isInstructor = user.role === "Instructor";
 
+  // 🌟 Agregamos los dos accesos paralelos si el usuario es Instructor
   const navItems = isInstructor
-    ? [...baseNav, { to: "/profesor", label: "Auditoría Docente" } as const]
+    ? [
+        ...baseNav, 
+        { to: "/profesor", label: "Auditoría Docente" } as const,
+        { to: "/visualizarfeedback", label: "Ver Feedbacks" } as const // 👈 NUEVO ACCESO MANUAL
+      ]
     : baseNav;
 
-  const toggleRole = () => {
-    if (isInstructor) {
-      setUser({
-        ...user,
-        role: "Learner",
-        email: "alumno225@unraf.edu.ar",
-      });
-    } else {
-      setUser({
-        ...user,
-        role: "Instructor",
-        email: "profesor@unraf.edu.ar",
-      });
-    }
-  };
+    const toggleRole = () => {
+      if (isInstructor) {
+        setUser({
+          ...user,
+          role: "Learner",
+          email: "alumno225@unraf.edu.ar",
+        });
+      } else {
+        setUser({
+          ...user,
+          role: "Instructor",
+          email: "elias.profesor@unraf.edu.ar",
+        });
+      }
+    };
 
   return (
     <header className="bg-surface/90 backdrop-blur fixed top-0 left-0 w-full z-50 flex justify-between items-center h-16 px-4 md:px-20 border-b border-outline-variant/40">
@@ -46,7 +51,10 @@ export function AppHeader({ anonymousId }: { anonymousId?: string }) {
         <nav className="hidden md:flex gap-1">
           {navItems.map((item) => {
             const active = pathname === item.to;
-            const highlight = item.to === "/profesor";
+            // Evaluamos si corresponde a alguna de las secciones especiales de profesor
+            const isProfRoute = item.to.startsWith("/profesor");
+            const isFeedbackRoute = item.to === "/visualizarfeedback";
+
             return (
               <Link
                 key={item.to}
@@ -55,12 +63,20 @@ export function AppHeader({ anonymousId }: { anonymousId?: string }) {
                   "px-3 py-2 text-[14px] font-semibold tracking-wide rounded-lg transition-colors inline-flex items-center gap-1.5 " +
                   (active
                     ? "text-primary border-b-2 border-primary rounded-none"
-                    : highlight
-                      ? "text-secondary hover:bg-secondary-container/60"
-                      : "text-on-surface-variant hover:bg-surface-container")
+                    : isFeedbackRoute
+                      ? "text-emerald-600 hover:bg-emerald-50" // Color distintivo para diferenciar del feed crudo
+                      : isProfRoute
+                        ? "text-secondary hover:bg-secondary-container/60"
+                        : "text-on-surface-variant hover:bg-surface-container")
                 }
               >
-                {highlight && <Icon name="reviews" filled className="text-[18px]" />}
+                {isProfRoute && (
+                  <Icon 
+                    name={isFeedbackRoute ? "rate_review" : "reviews"} 
+                    filled={active} 
+                    className="text-[18px]" 
+                  />
+                )}
                 {item.label}
               </Link>
             );
