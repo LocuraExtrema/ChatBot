@@ -68,10 +68,10 @@ class ChatRequest(BaseModel):
 
 class FeedbackProfesorRequest(BaseModel):
     email: str = Field(..., example="elias.profesor@unraf.edu.ar", description="Email del profesor autenticado")
-    pregunta: str = Field(..., example="¿Qué es una dirección IP?", description="La pregunta que se le hizo al bot")
-    respuesta: str = Field(..., example="Es un número único...", description="La respuesta que arrojó el bot")
+    pregunta_original: str = Field(..., example="¿Qué es una dirección IP?", description="La pregunta que se le hizo al bot")
+    respuesta_bot: str = Field(..., example="Es un número único...", description="La respuesta que arrojó el bot")
     calificacion: str = Field(..., example="negativo", description="Debe ser 'positivo' o 'negativo'")
-    correccion: Optional[str] = Field(None, example="Faltó explicar IPv4 e IPv6", description="Comentario o respuesta corregida por el docente (opcional)")
+    correccion_sugerida: Optional[str] = Field(None, example="Faltó explicar IPv4 e IPv6", description="Comentario o respuesta corregida por el docente (opcional)")
 
 def hashear_usuario(username: str):
     return hashlib.sha256(username.encode()).hexdigest()
@@ -83,7 +83,7 @@ def startup_event():
     os.makedirs("uploads", exist_ok=True)
 
 def generar_system_prompt(confidence):
-    base_prompt = """Eres un profesor universitario argentino de matemáticas, riguroso, paciente y preciso.
+    base_prompt = r"""Eres un profesor universitario argentino de matemáticas, riguroso, paciente y preciso.
 Tu tarea es ayudar al estudiante utilizando exclusivamente la información contenida en el contexto proporcionado.
 Reglas obligatorias:
 1. No utilices conocimientos externos al contexto. 
@@ -335,7 +335,7 @@ async def guardar_feedback_profesor(data: FeedbackProfesorRequest):
     Endpoint para que los profesores validen o corrijan las respuestas del bot.
     Almacena los datos de auditoría de forma relacional en la base de datos.
     """
-    # Validación rápida en la capa de la API para los valores de calificación
+    # Validación rápida de la calificación
     if data.calificacion not in ["positivo", "negativo"]:
         raise HTTPException(
             status_code=400, 
@@ -343,13 +343,14 @@ async def guardar_feedback_profesor(data: FeedbackProfesorRequest):
         )
         
     try:
-        # Llamamos a tu función de database.py
+        # 🌟 EL MAPEO CLAVE:
+        # Pasamos las variables del Front (pregunta_original) a los parámetros de la DB (pregunta)
         registrar_feedback_profesor(
             email=data.email,
-            pregunta=data.pregunta_original,
-            respuesta=data.respuesta_bot,
+            pregunta=data.pregunta_original,       # Mapeado a 'pregunta' que sí existe en la DB
+            respuesta=data.respuesta_bot,          # Mapeado a 'respuesta' que sí existe en la DB
             calificacion=data.calificacion,
-            correccion=data.correccion_sugerida 
+            correccion=data.correccion_sugerida    # Mapeado a 'correccion'
         )
         return {
             "status": "success", 
@@ -357,13 +358,12 @@ async def guardar_feedback_profesor(data: FeedbackProfesorRequest):
         }
         
     except Exception as e:
-        # Si salta la clave foránea (el email no existe en la tabla de profesores), caerá acá
+        print(f"--> [ERROR CRÍTICO DB]: {str(e)}")
         if "FOREIGN KEY" in str(e) or "constraint failed" in str(e):
             raise HTTPException(
                 status_code=400,
                 detail=f"Error de integridad: El email '{data.email}' no corresponde a un profesor autorizado."
             )
-        # Cualquier otro error interno del motor SQLite
         raise HTTPException(
             status_code=500, 
             detail=f"Error interno al procesar el guardado en la base de datos: {str(e)}"
