@@ -93,9 +93,9 @@ def inicializar_tabla_profesores():
 
     # Insertamos los profesores autorizados
     profesores_test = [
-    ('elias.profesor@unraf.edu.ar', 'Elías Farinoli'),
-    ('test.docente@unraf.edu.ar', 'Profesor de Prueba'),
-    ('profesor@unraf.edu.ar', 'Profesor Simulado LTI') # 👈 Agregamos este
+    ('elias.profesor@unraf.edu.ar', 'Elías Farinoli', 1),
+    ('test.docente@unraf.edu.ar', 'Profesor de Prueba', 1),
+    ('profesor@unraf.edu.ar', 'Profesor Simulado LTI', 1) # 👈 Agregamos este
 ]
     try:
         cursor.executemany("""
