@@ -1,40 +1,25 @@
 import fitz  # PyMuPDF
 import os
+import ollama
 
+# 1. Configuración de la Biblioteca
+# Asegurate de que los nombres coincidan EXACTAMENTE con tus archivos en /books
 BIBLIOTECA = {
     "calculo1": "calculus-volume-1.pdf", 
     "calculo2": "calculus-volume-2.pdf", 
     "calculo3": "calculus-volume-3.pdf"
 }
 
-# 🌟 DICCIONARIO MATEMÁTICO ESTÁTICO (Reemplaza a Ollama para traducir en 0ms)
-DICCIONARIO_TECNICO = {
-    "derivada": "derivative",
-    "derivadas": "derivatives",
-    "recta tangente": "tangent line",
-    "limite": "limit",
-    "limites": "limits",
-    "integrales": "integrals",
-    "integral": "integral",
-    "serie": "series",
-    "sucesion": "sequence",
-    "sucesiones": "sequences",
-    "convergencia": "convergence",
-    "divergencia": "divergence",
-    "potencias": "power series",
-    "vector": "vector",
-    "vectores": "vectors",
-    "parcial": "partial",
-    "superficie": "surface",
-    "gradiente": "gradient",
-    "stokes": "stokes",
-    "optimizacion": "optimization",
-    "lhopital": "l'hopital"
-}
-
-def seleccionar_libro(texto_consulta):
-    """Analiza el texto de la consulta y asigna el tomo correcto de OpenStax."""
-    tema = str(texto_consulta).lower().strip()
+def seleccionar_libro(tema_limpio):
+    """
+    Analiza el tema y devuelve el nombre del archivo PDF correspondiente.
+    """
+    # 1. Limpieza absoluta antes de comparar
+    tema = str(tema_limpio).lower().strip()
+    tema = "".join(c for c in tema if c.isalnum() or c in ["_", " "]).strip()
+    
+    # !!! PRINT CLAVE DE CONTROL:
+    print(f"   --> [DEBUG INTERNO] El string final procesado es: '{tema}'")
 
     # Prioridad Cálculo 3
     if any(w in tema for w in ["integracion multiple", "multiple", "triple", "multivariable", "parcial", "calculo vectorial", "vectores", "superficie", "gradiente", "stokes"]):
@@ -47,66 +32,92 @@ def seleccionar_libro(texto_consulta):
         return BIBLIOTECA["calculo2"]
     
     # Prioridad Cálculo 1
-    elif any(w in tema for w in ["funciones", "limites", "derivada", "derivadas", "recta tangente", "lhopital", "optimizacion", "integracion simple"]):
+    elif any(w in tema for w in ["funciones", "limites", "derivadas", "recta tangente", "lhopital", "optimizacion", "integracion simple"]):
         print("   --> [DEBUG MATCH] Clasificado en Cálculo 1")
         return BIBLIOTECA["calculo1"]
     
-    return BIBLIOTECA["calculo1"]
+    else:
+        print(f"   --> [DEBUG MATCH] Cayó en el ELSE. Asignando Cálculo 1 por defecto.")
+        return BIBLIOTECA["calculo1"]
 
-def buscar_en_pdf(pregunta_alumno):
-    # 1. Selección del Libro basándonos en el texto
-    libro_archivo = seleccionar_libro(pregunta_alumno)
+def traducir_a_ingles_tecnico(termino):
+    try:
+        # Prompt con ejemplos (Few-shot) para que la IA entienda el formato exacto
+        response = ollama.chat(model='phi3', messages=[
+            {
+                'role': 'system', 
+                'content': (
+                    "You are a technical math dictionary. Translate to English. "
+                    "Example 1: 'Derivadas' -> 'Derivatives'. "
+                    "Example 2: 'Integrales triples' -> 'Triple integrals'. "
+                    "Respond ONLY with the term. No explanations."
+                )
+            },
+            {'role': 'user', 'content': f"Translate: {termino}"}
+        ])
+        
+        traduccion = response['message']['content'].strip()
+        
+        # Limpieza de seguridad: nos quedamos con lo último que parezca un término
+        # Por si la IA dice: "The translation is: Limit"
+        if ":" in traduccion:
+            traduccion = traduccion.split(":")[-1]
+            
+        traduccion = traduccion.split('\n')[0].replace('"', '').replace('.', '').strip()
+        
+        print(f"   [TRADUCCIÓN] '{termino}' -> '{traduccion}'")
+        return traduccion
+    except Exception as e:
+        print(f"   [ERROR TRADUCCION] {e}")
+        return termino
+
+def buscar_en_pdf(tema_detectado):
+    # 1. Selección del Libro
+    libro_archivo = seleccionar_libro(tema_detectado)
     
-    # 2. Tokenizar y limpiar la pregunta del alumno en español
-    pregunta_limpia = "".join(c for c in pregunta_alumno.lower() if c.isalnum() or c in [" "]).strip()
-    palabras_alumno = [p for p in pregunta_limpia.split() if len(p) > 3]
+    # 2. Traducción técnica (usando el prompt de "diccionario" que armamos)
+    query_en = traducir_a_ingles_tecnico(tema_detectado).lower().strip()
+    if not query_en:
+        print("   [AVISO] La traducción quedó vacía. Usando fallback del término original.")
+        query_en = "".join(c for c in str(tema_detectado) if c.isalnum() or c in [" ", "_"]).lower()
 
-    # 3. Traducir palabras clave usando el diccionario estático
-    palabras_ingles = []
-    for p in palabras_alumno:
-        # Si la palabra exacta está en nuestro diccionario, añadimos su traducción
-        if p in DICCIONARIO_TECNICO:
-            palabras_ingles.append(DICCIONARIO_TECNICO[p])
-        else:
-            # Si no está, probamos si alguna palabra clave está contenida (ej: "derivadas" -> "derivative")
-            for clave, traduccion in DICCIONARIO_TECNICO.items():
-                if clave in p or p in clave:
-                    palabras_ingles.append(traduccion)
+    print(f"   [RAG] Libro: {libro_archivo} | Buscando: '{query_en}'")
 
-    # Si no se pudo mapear nada, dejamos las palabras originales como fallback
-    if not palabras_ingles:
-        palabras_ingles = palabras_alumno[:3]
-
-    print(f"   [RAG] Libro: {libro_archivo} | Palabras clave en inglés: {palabras_ingles}")
+    # 3. Limpieza de palabras clave
+    # Eliminamos términos comunes que pueden "ensuciar" la búsqueda
+    stop_words = ["the", "with", "from", "that", "this"]
+    palabras = [p for p in query_en.split() if len(p) > 3 and p not in stop_words]
     
-    if not palabras_ingles:
+    # Si aun así no quedan palabras clave, evitamos recorrer el documento en vano
+    if not palabras:
+        print("   [AVISO] No hay palabras clave suficientes para buscar. Saltando RAG.")
         return None
     
-    ruta_pdf = os.path.join(os.path.dirname(__file__), "books", libro_archivo)
+    # Ajuste de ruta (verificá si es "docs" o "books" según tu carpeta)
+    ruta_pdf = os.path.join(os.path.dirname(_file_), "books", libro_archivo)
+    
     if not os.path.exists(ruta_pdf):
         print(f"   [ERROR] No existe el archivo: {ruta_pdf}")
         return None
 
     try:
         doc = fitz.open(ruta_pdf)
-        
-        # Estrategia de búsqueda híbrida:
-        # Intentamos buscar páginas que contengan AL MENOS las 2 primeras palabras clave importantes
-        palabras_filtro = palabras_ingles[:2]
-        
         for pagina in doc:
             texto_pagina = pagina.get_text().lower()
             
-            # Si todas las palabras principales están en la página, la damos por válida
-            if all(p in texto_pagina for p in palabras_filtro):
-                print(f"   [EXITO] Coincidencia RAG en {libro_archivo}, Pág {pagina.number + 1}")
-                contenido = texto_pagina[:3500] 
+            # --- MEJORA DE COINCIDENCIA ---
+            # Si el concepto tiene varias palabras, permitimos que falte una (opcional)
+            # o simplemente buscamos la coincidencia exacta de la frase clave.
+            if all(p in texto_pagina for p in palabras):
+                print(f"   [EXITO] Se encontró contenido en {libro_archivo}, Pág {pagina.number + 1}")
+                
+                # Extraemos un bloque de texto un poco más grande para dar contexto
+                contenido = texto_pagina[:3000] 
                 doc.close()
                 return contenido
                 
         doc.close()
-        print(f"   [AVISO] No se hallaron páginas con las palabras clave {palabras_filtro}")
+        print(f"   [AVISO] No se hallaron coincidencias para '{query_en}' en el PDF.")
     except Exception as e:
         print(f"   [ERROR CRÍTICO PDF] {e}")
-    
     return None
