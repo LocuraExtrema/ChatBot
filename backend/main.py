@@ -1,11 +1,10 @@
 from fastapi import FastAPI, HTTPException, Request, Form
-from fastapi.responses import RedirectResponse, StreamingResponse
+from fastapi.responses import RedirectResponse
 from fastapi.middleware.cors import CORSMiddleware
 import hashlib
 from pydantic import BaseModel, Field
 from typing import Optional
 import os
-import time
 import ollama
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
@@ -23,26 +22,26 @@ from models import ChatResponse # Mantenemos ChatResponse de models
 from busqueda_local import buscar_en_pdf
 
 class CustomFastAPIOIDCLogin(OIDCLogin):
-    def __init__(self, request: Request, tool_config):
+    def _init_(self, request: Request, tool_config):
         self._request = request
         lti_request = LTIRequest({
             'get': dict(request.query_params),
             'post': {}
         })
-        super().__init__(lti_request, tool_config)
+        super()._init_(lti_request, tool_config)
 
     def redirect(self, url):
         return RedirectResponse(url=url, status_code=302)
 
 
 class CustomFastAPIMessageLaunch(MessageLaunch):
-    def __init__(self, request: Request, tool_config, form_data: dict):
+    def _init_(self, request: Request, tool_config, form_data: dict):
         self._request = request
         lti_request = LTIRequest({
             'get': {},
             'post': form_data
         })
-        super().__init__(lti_request, tool_config)
+        super()._init_(lti_request, tool_config)
 
 app = FastAPI(title="Faro Chatbot UNRaf")
 
@@ -69,10 +68,10 @@ class ChatRequest(BaseModel):
 
 class FeedbackProfesorRequest(BaseModel):
     email: str = Field(..., example="elias.profesor@unraf.edu.ar", description="Email del profesor autenticado")
-    pregunta_original: str = Field(..., example="¿Qué es una dirección IP?", description="La pregunta que se le hizo al bot")
-    respuesta_bot: str = Field(..., example="Es un número único...", description="La respuesta que arrojó el bot")
+    pregunta: str = Field(..., example="¿Qué es una dirección IP?", description="La pregunta que se le hizo al bot")
+    respuesta: str = Field(..., example="Es un número único...", description="La respuesta que arrojó el bot")
     calificacion: str = Field(..., example="negativo", description="Debe ser 'positivo' o 'negativo'")
-    correccion_sugerida: Optional[str] = Field(None, example="Faltó explicar IPv4 e IPv6", description="Comentario o respuesta corregida por el docente (opcional)")
+    correccion: Optional[str] = Field(None, example="Faltó explicar IPv4 e IPv6", description="Comentario o respuesta corregida por el docente (opcional)")
 
 def hashear_usuario(username: str):
     return hashlib.sha256(username.encode()).hexdigest()
@@ -84,7 +83,7 @@ def startup_event():
     os.makedirs("uploads", exist_ok=True)
 
 def generar_system_prompt(confidence):
-    base_prompt = r"""Eres un profesor universitario argentino de matemáticas, riguroso, paciente y preciso.
+    base_prompt = """Eres un profesor universitario argentino de matemáticas, riguroso, paciente y preciso.
 Tu tarea es ayudar al estudiante utilizando exclusivamente la información contenida en el contexto proporcionado.
 Reglas obligatorias:
 1. No utilices conocimientos externos al contexto. 
@@ -122,7 +121,7 @@ Respuesta:"""
         response = ollama.generate(
             model='phi3', 
             prompt=prompt, 
-            options={'temperature': 0, 'keep_alive': -1, 'num_predict': 512}
+            options={'temperature': 0, 'keep_alive': 0}
         )
         
         # Limpieza absoluta de la respuesta del modelo
@@ -152,103 +151,121 @@ Respuesta:"""
         print(f"Error en clasificación: {e}")
         return "FUERA_DE_ESTRUCTURA"
     
-# --- ENDPOINT PRINCIPAL MODIFICADO ---
-@app.post("/api/chat")
+# --- ENDPOINT PRINCIPAL ---
+@app.post("/api/chat", response_model=ChatResponse)
 async def chat_endpoint(chat_data: ChatRequest, request: Request):
     loop = asyncio.get_event_loop()
-    user_hash = hashear_usuario(chat_data.user_id)
+    # ^^^ EXPLICACIÓN: 'chat_data' recibe el JSON, 'request' detecta la conexión de red.
     
+    # 🔍 IMPRIMIMOS EL CONTENIDO EXACTO QUE MANDÓ EL FRONT:
     print("\n================ DATO RECIBIDO DEL FRONT ================")
-    print(f"Pregunta de: {chat_data.user_id} -> '{chat_data.pregunta}'")
+    print(f"1. Petición recibida de: {chat_data.user_id}")
+    print(chat_data.dict()) # Muestra todo el JSON convertido en diccionario de Python
     print("=========================================================\n")
 
-    # --- BÚSQUEDA LOCAL DIRECTA EN PDF (RAG) ---
-    print(f"3. Consultando biblioteca de PDFs con la pregunta directa...")
-    inicio_rag = time.perf_counter()
+    # --- PROCESO DE HASHING ---
+    user_hash = hashear_usuario(chat_data.user_id)
+    print(f"2. Guardando actividad bajo hash: {user_hash}")
     
-    # 🌟 LLAMADA DIRECTA: Le enviamos la pregunta cruda del alumno
-    contexto_pdf = await loop.run_in_executor(executor, buscar_en_pdf, chat_data.pregunta)
-    
-    print(f"⏱️ [TIEMPO] Búsqueda local en PDF: {time.perf_counter() - inicio_rag:.4f} segundos")
+# --- LÓGICA DE PROCESAMIENTO ---
+    print(f"3. Clasificando tema...")
+    tema_detectado = await loop.run_in_executor(executor, clasificar_pregunta, chat_data.pregunta)
+    print(f"-> Tema final asignado: '{tema_detectado}'")
 
-    # Mapeamos una etiqueta limpia para la columna subtema del Log de la DB
-    # Intentamos extraer la primera palabra clave traducida para el log
-    tema_log = "Consulta General / RAG"
-    if contexto_pdf:
-        fuente_info = "PDF LOCAL (Inglés)"
+    # --- CORTO CIRCUITO DE SEGURIDAD ---
+    contexto_pdf = None
+    if tema_detectado == "FUERA_DE_ESTRUCTURA":
+        print("-> La pregunta no encaja en los subtemas válidos. Saltando el buscador de PDF.")
+        # Dejamos contexto_pdf en None para que Ollama responda con CONOCIMIENTO GENERAL directamente
+        contexto_pdf = None
     else:
-        fuente_info = "CONOCIMIENTO GENERAL"
+        # --- LIMPIEZA CRÍTICA PARA EL RAG ---
+        tema_para_buscar = str(tema_detectado)
+        if ":" in tema_para_buscar:
+            tema_para_buscar = tema_para_buscar.split(":")[0].strip()
+        
+        tema_para_buscar = "".join(c for c in tema_para_buscar if c.isalnum() or c in [" ", "_"]).strip()
+        palabras = tema_para_buscar.split()
+        tema_para_buscar = " ".join(palabras[:4]).strip().strip("_").strip()
+
+        # --- BÚSQUEDA LOCAL EN PDF (RAG) ---
+        print(f"4. Consultando PDF local para: {tema_para_buscar}...")
+        contexto_pdf = await loop.run_in_executor(executor, buscar_en_pdf, tema_para_buscar)
 
     system_content = generar_system_prompt(chat_data.confidence)
     
     if contexto_pdf:
+        fuente_info = "PDF LOCAL (Inglés)"
         full_prompt = f"""
         TECHNICAL CONTEXT (From English Textbook):
         {contexto_pdf}
         
-        INSTRUCCIÓN: Utiliza el contexto anterior en inglés para responder la duda del alumno en ESPAÑOL de manera pedagógica.
+        INSTRUCCIÓN: Utiliza el contexto anterior en inglés para responder la duda del alumno en ESPAÑOL.
         PREGUNTA DEL ESTUDIANTE: {chat_data.pregunta}
         """
     else:
+        fuente_info = "CONOCIMIENTO GENERAL"
         full_prompt = chat_data.pregunta
     
-    print(f"4. Iniciando flujo Ollama en Streaming (Modo: {fuente_info})...")
+    print(f"5. Llamando a Ollama (Modo: {fuente_info})...")
 
-    async def generador_de_respuesta():
-        respuesta_completa = ""
-        tokens_generados = 0
-        inicio_gen = time.perf_counter()
-        primer_token = False
-        
-        try:
-            response_stream = await loop.run_in_executor(
-                executor,
-                lambda: ollama.chat(
-                    model='phi3', 
-                    messages=[
-                        {'role': 'system', 'content': system_content},
-                        {'role': 'user', 'content': full_prompt},
-                    ],
-                    options={'temperature': 0.1, 'num_predict': 512, 'keep_alive': -1},
-                    stream=True
-                )
-            )
+    def call_ollama():
+        # Usamos la API de chat pero con un identificador o simplemente 
+        # confiamos en que al cerrar el socket local, Ollama debería notar la presión, 
+        # pero para ser agresivos, usaremos un timeout.
+        return ollama.chat(
+            model='phi3', 
+            messages=[
+                {'role': 'system', 'content': system_content},
+                {'role': 'user', 'content': full_prompt},
+            ],
+            options={'temperature': 0.1, 'num_predict': 1024, 'keep_alive': 0}
+        )
 
-            for chunk in response_stream:
-                if await request.is_disconnected():
-                    print("!!! CLIENTE DESCONECTADO: Cancelando Ollama en la GPU/CPU.")
-                    return
+    try:
+        task = loop.run_in_executor(executor, call_ollama)
 
-                token = chunk['message']['content']
-                respuesta_completa += token
-                tokens_generados += 1
+        while not task.done():
+            if await request.is_disconnected():
+                print("!!! CLIENTE DESCONECTADO: Forzando parada de Ollama...")
                 
-                if not primer_token:
-                    print(f"⏱️ [TIEMPO] TTFT (Primer token): {time.perf_counter() - inicio_gen:.4f} segundos")
-                    primer_token = True
+                # --- SOLUCIÓN RADICAL ---
+                # Enviamos una petición vacía o intentamos matar el proceso 
+                # En Ollama, la mejor forma es simplemente dejar de leer, 
+                # pero si querés liberar la RAM YA:
+                task.cancel()
+                
+                # Intentamos avisarle a la API local de Ollama que aborte
+                try:
+                    # Esto intenta "pisar" la tarea anterior generando algo vacío
+                    await request.post("http://localhost:11434/api/generate", 
+                                  json={"model": "phi3", "keep_alive": 0})
+                except:
+                    pass
+                
+                return None 
+            await asyncio.sleep(0.5)
 
-                yield token
-                await asyncio.sleep(0.01)
+        response = await task
+        respuesta_final = response['message']['content']
+        
+        # --- REGISTRO EN DB ---
+        # Pasamos una copia de chat_data con el ID hasheado para el log
+        chat_data_log = chat_data.copy(update={"user_id": user_hash})
+        await loop.run_in_executor(
+            executor, 
+            registrar_log, 
+            chat_data_log,
+            tema_detectado, 
+            respuesta_final
+        )
+        
+        print(f"6. Respuesta enviada. Fuente: {fuente_info}")
+        return ChatResponse(tema=tema_detectado, respuesta=respuesta_final)
 
-            print(f"⏱️ [TIEMPO] Generación completa: {time.perf_counter() - inicio_gen:.4f} segundos ({tokens_generados} tokens)")
-
-            # Registro seguro en base de datos sin errores posicionales
-            await loop.run_in_executor(
-                executor, 
-                registrar_log, 
-                user_hash,               
-                chat_data.course_id,     
-                chat_data.role,          
-                tema_log, 
-                chat_data.pregunta,      
-                respuesta_completa       
-            )
-
-        except Exception as e:
-            print(f"ERROR EN STREAM: {e}")
-            yield f"\n[Error en el servidor: {str(e)}]"
-
-    return StreamingResponse(generador_de_respuesta(), media_type="text/plain")
+    except Exception as e:
+        print(f"ERROR: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.on_event("shutdown")
 def shutdown_event():
@@ -258,7 +275,7 @@ def shutdown_event():
     # os.system("taskkill /IM ollama_llama_server.exe /F")
 
 # Inicializamos la lectura del archivo de configuración que creaste recién
-CONFIG_LTI_PATH = os.path.join(os.path.dirname(__file__), 'lti_config.json')
+CONFIG_LTI_PATH = os.path.join(os.path.dirname(_file_), 'lti_config.json')
 tool_conf = ToolConfJsonFile(CONFIG_LTI_PATH)
 
 # ENDPOINT 1: Inicio del flujo OIDC
@@ -318,7 +335,7 @@ async def guardar_feedback_profesor(data: FeedbackProfesorRequest):
     Endpoint para que los profesores validen o corrijan las respuestas del bot.
     Almacena los datos de auditoría de forma relacional en la base de datos.
     """
-    # Validación rápida de la calificación
+    # Validación rápida en la capa de la API para los valores de calificación
     if data.calificacion not in ["positivo", "negativo"]:
         raise HTTPException(
             status_code=400, 
@@ -326,14 +343,13 @@ async def guardar_feedback_profesor(data: FeedbackProfesorRequest):
         )
         
     try:
-        # 🌟 EL MAPEO CLAVE:
-        # Pasamos las variables del Front (pregunta_original) a los parámetros de la DB (pregunta)
+        # Llamamos a tu función de database.py
         registrar_feedback_profesor(
             email=data.email,
-            pregunta=data.pregunta_original,       # Mapeado a 'pregunta' que sí existe en la DB
-            respuesta=data.respuesta_bot,          # Mapeado a 'respuesta' que sí existe en la DB
+            pregunta=data.pregunta_original,
+            respuesta=data.respuesta_bot,
             calificacion=data.calificacion,
-            correccion=data.correccion_sugerida    # Mapeado a 'correccion'
+            correccion=data.correccion_sugerida 
         )
         return {
             "status": "success", 
@@ -341,12 +357,13 @@ async def guardar_feedback_profesor(data: FeedbackProfesorRequest):
         }
         
     except Exception as e:
-        print(f"--> [ERROR CRÍTICO DB]: {str(e)}")
+        # Si salta la clave foránea (el email no existe en la tabla de profesores), caerá acá
         if "FOREIGN KEY" in str(e) or "constraint failed" in str(e):
             raise HTTPException(
                 status_code=400,
                 detail=f"Error de integridad: El email '{data.email}' no corresponde a un profesor autorizado."
             )
+        # Cualquier otro error interno del motor SQLite
         raise HTTPException(
             status_code=500, 
             detail=f"Error interno al procesar el guardado en la base de datos: {str(e)}"
