@@ -1,6 +1,6 @@
 import fitz  # PyMuPDF
 import os
-import ollama
+import ollamaz
 
 # 1. Configuración de la Biblioteca
 # Asegurate de que los nombres coincidan EXACTAMENTE con tus archivos en /books
