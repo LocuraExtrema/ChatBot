@@ -33,6 +33,7 @@ export const Route = createFileRoute("/chatbot")({
 function StudentChat() {
   const { user, messages, addMessage } = useLti();
   const [input, setInput] = useState("");
+  const [streamedText, setStreamedText] = useState(""); // 👈 Nuevo estado para el texto en tiempo real
   
   // Nivel pedagógico estricto para conectar con main.py (1: Principiante, 2: Intermedio, 3: Avanzado)
   const [confidence, setConfidence] = useState<number>(1);
@@ -47,12 +48,15 @@ function StudentChat() {
 
   const [sending, setSending] = useState(false);
 
-  const send = async () => {
+const send = async () => {
     const text = input.trim();
     if (!text || sending) return;
+
     const userMsg = addMessage({ role: "user", text });
     setInput("");
     setSending(true);
+    setStreamedText(""); // 👈 Limpiamos el texto temporal anterior
+
     try {
       const base = import.meta.env.VITE_API_URL ?? "";
       const res = await fetch(`${base}/api/chat`, {
@@ -63,14 +67,36 @@ function StudentChat() {
           course_id: user.course_id,
           role: user.role,
           pregunta: text,
-          confidence: confidence, // Viaja el nivel estricto al backend
+          confidence: confidence, 
         }),
       });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
-      const reply =
-        data.respuesta ?? data.response ?? data.text ?? data.message ?? JSON.stringify(data);
-      addMessage({ role: "ai", text: String(reply), inReplyTo: userMsg.id });
+
+      if (!res.ok) {
+        const errorText = await res.text();
+        throw new Error(errorText || `HTTP ${res.status}`);
+      }
+
+      const reader = res.body?.getReader();
+      const decoder = new TextDecoder("utf-8");
+      if (!reader) throw new Error("No hay lector.");
+
+      let textoAcumulado = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        const chunk = decoder.decode(value, { stream: true });
+        textoAcumulado += chunk;
+
+        // 🌟 ESTO SÍ HACE QUE REACT RE-RENDERICE LETRA POR LETRA:
+        setStreamedText(textoAcumulado);
+      }
+
+      // ✨ Cuando el bucle termina, guardamos el mensaje completo en el historial global
+      addMessage({ role: "ai", text: textoAcumulado, inReplyTo: userMsg.id });
+      setStreamedText(""); // Limpiamos el temporal
+
     } catch (err) {
       addMessage({
         role: "ai",
@@ -93,7 +119,7 @@ function StudentChat() {
     return "Avanzado";
   };
 
-  return (
+return (
     <div className="min-h-screen bg-surface pb-32 md:pb-12">
       <AppHeader anonymousId="225" />
 
@@ -150,12 +176,32 @@ function StudentChat() {
                 </div>
               );
             })}
-            {sending && (
-              <div className="self-start bg-surface-container-highest text-on-surface-variant rounded-2xl rounded-tl-sm px-4 py-3 text-[15px] italic opacity-80">
+
+            {/* 🌟 BURBUJA TEMPORAL EN STREAMING (Muestra la respuesta de TinyLlama en tiempo real) */}
+            {streamedText && (
+              <div className="max-w-[85%] self-start bg-surface-container-highest text-on-surface-variant rounded-2xl rounded-tl-sm px-4 py-3 text-[15px] leading-relaxed animate-in fade-in duration-200">
+                <div className="prose prose-sm max-w-none text-on-surface-variant custom-markdown">
+                  <ReactMarkdown
+                    remarkPlugins={[remarkMath]}
+                    rehypePlugins={[rehypeKatex]}
+                  >
+                    {streamedText
+                      .replace(/\\\[/g, "$$").replace(/\\\]/g, "$$")
+                      .replace(/\\Ref/g, "$").replace(/\\\)/g, "$")
+                      .replace(/\\\(/g, "$")}
+                  </ReactMarkdown>
+                </div>
+              </div>
+            )}
+
+            {/* Cartel "Escribiendo..." modificado: Solo se muestra si está enviando pero todavía no llegó la primera palabra */}
+            {sending && !streamedText && (
+              <div className="self-start bg-surface-container-highest text-on-surface-variant rounded-2xl rounded-tl-sm px-4 py-3 text-[15px] italic opacity-80 animate-pulse">
                 Escribiendo…
               </div>
             )}
           </div>
+
           <div className="p-3 border-t border-outline-variant/60 bg-white flex items-center gap-2">
             <input
               value={input}
