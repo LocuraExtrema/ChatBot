@@ -66,10 +66,27 @@ function StudentChat() {
           confidence: confidence, // Viaja el nivel estricto al backend
         }),
       });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
-      const reply =
-        data.respuesta ?? data.response ?? data.text ?? data.message ?? JSON.stringify(data);
+   if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+const raw = await res.text();
+
+console.log("Respuesta servidor:", raw);
+
+let reply = "";
+
+try {
+  const data = JSON.parse(raw);
+
+  reply =
+    data.respuesta ??
+    data.response ??
+    data.text ??
+    data.message ??
+    JSON.stringify(data);
+} catch {
+  // Si el servidor devuelve texto plano
+  reply = raw;
+};
       addMessage({ role: "ai", text: String(reply), inReplyTo: userMsg.id });
     } catch (err) {
       addMessage({
