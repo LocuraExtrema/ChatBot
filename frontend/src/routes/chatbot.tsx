@@ -70,28 +70,33 @@ const send = async () => {
           confidence: confidence, 
         }),
       });
-   if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
-const raw = await res.text();
+      if (!res.ok) {
+        const errorText = await res.text();
+        throw new Error(errorText || `HTTP ${res.status}`);
+      }
 
-console.log("Respuesta servidor:", raw);
+      const reader = res.body?.getReader();
+      const decoder = new TextDecoder("utf-8");
+      if (!reader) throw new Error("No hay lector.");
 
-let reply = "";
+      let textoAcumulado = "";
 
-try {
-  const data = JSON.parse(raw);
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
 
-  reply =
-    data.respuesta ??
-    data.response ??
-    data.text ??
-    data.message ??
-    JSON.stringify(data);
-} catch {
-  // Si el servidor devuelve texto plano
-  reply = raw;
-};
-      addMessage({ role: "ai", text: String(reply), inReplyTo: userMsg.id });
+        const chunk = decoder.decode(value, { stream: true });
+        textoAcumulado += chunk;
+
+        // 🌟 ESTO SÍ HACE QUE REACT RE-RENDERICE LETRA POR LETRA:
+        setStreamedText(textoAcumulado);
+      }
+
+      // ✨ Cuando el bucle termina, guardamos el mensaje completo en el historial global
+      addMessage({ role: "ai", text: textoAcumulado, inReplyTo: userMsg.id });
+      setStreamedText(""); // Limpiamos el temporal
+
     } catch (err) {
       addMessage({
         role: "ai",
