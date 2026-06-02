@@ -120,7 +120,7 @@ Respuesta:"""
     
     try:
         response = ollama.generate(
-            model='tinyllama', 
+            model='phi3:mini', 
             prompt=prompt, 
             options={'temperature': 0, 'keep_alive': -1, 'num_predict': 512}
         )
@@ -204,7 +204,7 @@ async def chat_endpoint(chat_data: ChatRequest, request: Request):
             response_stream = await loop.run_in_executor(
                 executor,
                 lambda: ollama.chat(
-                    model='tinyllama', 
+                    model='phi3:mini', 
                     messages=[
                         {'role': 'system', 'content': system_content},
                         {'role': 'user', 'content': full_prompt},
