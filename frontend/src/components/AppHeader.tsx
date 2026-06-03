@@ -41,7 +41,12 @@ export function AppHeader({ anonymousId }: { anonymousId?: string }) {
   return (
     <header className="bg-surface/90 backdrop-blur fixed top-0 left-0 w-full z-50 flex justify-between items-center h-16 px-4 md:px-20 border-b border-outline-variant/40">
       <Link to="/" className="flex items-center gap-3">
-        <Icon name="school" filled className="text-primary" />
+      {/* 🌟 REEMPLAZO DEL ICONO POR TU IMAGEN 🌟 */}
+        <img 
+          src="src/logo/faro_solo.png" 
+          alt="Logo Faro UNRaf" 
+          className="h-9 w-auto object-contain" 
+        />
         <span className="text-[20px] font-bold text-primary tracking-tight">
           Faro UNRaf
         </span>

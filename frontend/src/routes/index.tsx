@@ -66,16 +66,13 @@ function Portada() {
       <div className="relative z-10 flex flex-col items-center max-w-3xl text-center animate-in fade-in zoom-in-95 duration-1000">
         {/* Logo / Lighthouse mark */}
         <div className="mb-10 flex flex-col items-center">
-          <div className="relative w-28 h-28 mb-6 grid place-items-center">
-            <div className="absolute inset-0 rounded-full bg-secondary/15 blur-2xl" />
-            <div className="relative w-24 h-24 rounded-full bg-primary text-on-primary grid place-items-center floating-shadow">
-              <Icon
-                name="light_mode"
-                filled
-                className="text-[44px] text-tertiary-fixed-dim"
-              />
-            </div>
-          </div>
+          {/* 🌟 RUTA ABSOLUTA DESDE PUBLIC Y TAMAÑO ARREGLADO 🌟 */}
+          <img 
+            src="src/logo/faro_solo.png" 
+            alt="Logo Faro Inicial" 
+            className="w-40 h-40 object-contain mb-6" 
+          />
+          
           <h1 className="text-5xl md:text-7xl font-extrabold text-primary tracking-tight leading-[1.05]">
             Faro <span className="text-secondary">UNRaf</span>
           </h1>
