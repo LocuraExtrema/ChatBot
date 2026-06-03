@@ -23,7 +23,7 @@ export const Route = createFileRoute("/panel")({
   component: TeacherPanel,
 });
 
-type Subject = "matematica" | "fisica" | "historia";
+type Subject = "matematica";
 
 const DATA: Record<
   Subject,
@@ -52,46 +52,6 @@ const DATA: Record<
         desc: "Confianza estable en la mayoría del grupo (74/100)",
         status: "ok",
         tag: "+22 respuestas",
-      },
-    ],
-  },
-  fisica: {
-    label: "Física",
-    score: 54,
-    students: 28,
-    distribution: [30, 50, 20],
-    topics: [
-      {
-        title: "Termodinámica",
-        desc: "Confianza media baja (48/100)",
-        status: "warn",
-        tag: "+11 respuestas",
-      },
-      {
-        title: "Cinemática",
-        desc: "Confianza estable (70/100)",
-        status: "ok",
-        tag: "+17 respuestas",
-      },
-    ],
-  },
-  historia: {
-    label: "Historia",
-    score: 82,
-    students: 41,
-    distribution: [8, 32, 60],
-    topics: [
-      {
-        title: "Revolución Industrial",
-        desc: "Confianza alta (84/100)",
-        status: "ok",
-        tag: "+25 respuestas",
-      },
-      {
-        title: "Edad Media",
-        desc: "Confianza estable (78/100)",
-        status: "ok",
-        tag: "+16 respuestas",
       },
     ],
   },
@@ -132,8 +92,6 @@ function TeacherPanel() {
               className="w-full bg-surface-container-lowest border border-outline-variant rounded-xl px-4 py-3 text-on-surface focus:ring-2 focus:ring-secondary focus:border-secondary outline-none appearance-none cursor-pointer transition-all"
             >
               <option value="matematica">Matemática</option>
-              <option value="fisica">Física</option>
-              <option value="historia">Historia</option>
             </select>
             <Icon
               name="expand_more"
