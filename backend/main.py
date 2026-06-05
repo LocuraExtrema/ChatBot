@@ -7,6 +7,7 @@ from typing import Optional
 import os
 import time
 import ollama
+from ollama import AsyncClient
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
 
@@ -166,33 +167,27 @@ async def chat_endpoint(chat_data: ChatRequest, request: Request):
     print(f"3. Consultando biblioteca de PDFs con la pregunta directa...")
     inicio_rag = time.perf_counter()
     
-    # 🌟 LLAMADA DIRECTA: Le enviamos la pregunta cruda del alumno
-    contexto_pdf = await loop.run_in_executor(executor, buscar_en_pdf, chat_data.pregunta)
+    # Reducimos dinámicamente a un máximo de 2 chunks en busqueda_local para alivianar el Prefill
+    contexto_pdf = await loop.run_in_executor(executor, lambda: buscar_en_pdf(chat_data.pregunta, limite_chunks=2))
     
     print(f"⏱️ [TIEMPO] Búsqueda local en PDF: {time.perf_counter() - inicio_rag:.4f} segundos")
 
-    # Mapeamos una etiqueta limpia para la columna subtema del Log de la DB
-    # Intentamos extraer la primera palabra clave traducida para el log
     tema_log = "Consulta General / RAG"
-    if contexto_pdf:
-        fuente_info = "PDF LOCAL (Inglés)"
-    else:
-        fuente_info = "CONOCIMIENTO GENERAL"
+    fuente_info = "PDF LOCAL (Inglés)" if contexto_pdf else "CONOCIMIENTO GENERAL"
 
     system_content = generar_system_prompt(chat_data.confidence)
     
     if contexto_pdf:
-        full_prompt = f"""
-        TECHNICAL CONTEXT (From English Textbook):
-        {contexto_pdf}
-        
-        INSTRUCCIÓN: Utiliza el contexto anterior en inglés para responder la duda del alumno en ESPAÑOL de manera pedagógica.
-        PREGUNTA DEL ESTUDIANTE: {chat_data.pregunta}
-        """
+        full_prompt = f"""TECHNICAL CONTEXT (From English Textbook):
+{contexto_pdf}
+
+INSTRUCCIÓN: Utiliza el contexto anterior en inglés para responder la duda del alumno en ESPAÑOL de manera pedagógica y ultra-concisa.
+PREGUNTA DEL ESTUDIANTE: {chat_data.pregunta}
+Answer:"""
     else:
         full_prompt = chat_data.pregunta
     
-    print(f"4. Iniciando flujo Ollama en Streaming (Modo: {fuente_info})...")
+    print(f"4. Iniciando flujo Ollama Nativo Asincrónico (Modo: {fuente_info})...")
 
     async def generador_de_respuesta():
         respuesta_completa = ""
@@ -201,20 +196,20 @@ async def chat_endpoint(chat_data: ChatRequest, request: Request):
         primer_token = False
         
         try:
-            response_stream = await loop.run_in_executor(
-                executor,
-                lambda: ollama.chat(
-                    model='phi3:mini', 
-                    messages=[
-                        {'role': 'system', 'content': system_content},
-                        {'role': 'user', 'content': full_prompt},
-                    ],
-                    options={'temperature': 0.1, 'num_predict': 512, 'keep_alive': -1},
-                    stream=True
-                )
+            # 🚀 LLAMADA ASINCRÓNICA NATIVA: No bloquea el loop de FastAPI durante el prefill
+            async_client = AsyncClient()
+            response_stream = await async_client.chat(
+                model='phi3:mini',
+                messages=[
+                    {'role': 'system', 'content': system_content},
+                    {'role': 'user', 'content': full_prompt},
+                ],
+                options={'temperature': 0.1, 'num_predict': 512, 'keep_alive': -1, 'num_thread': 6},
+                stream=True
             )
 
-            for chunk in response_stream:
+            # 🌟 Iteramos usando 'async for' para liberar recursos mientras llega cada token
+            async for chunk in response_stream:
                 if await request.is_disconnected():
                     print("!!! CLIENTE DESCONECTADO: Cancelando Ollama en la GPU/CPU.")
                     return
@@ -224,15 +219,15 @@ async def chat_endpoint(chat_data: ChatRequest, request: Request):
                 tokens_generados += 1
                 
                 if not primer_token:
-                    print(f"⏱️ [TIEMPO] TTFT (Primer token): {time.perf_counter() - inicio_gen:.4f} segundos")
+                    print(f"⏱️ [TIEMPO] TTFT (Primer token real): {time.perf_counter() - inicio_gen:.4f} segundos")
                     primer_token = True
 
                 yield token
-                await asyncio.sleep(0.01)
+                # Eliminamos el asyncio.sleep(0.01) artificial ya que el async for maneja el delay natural del hardware
 
             print(f"⏱️ [TIEMPO] Generación completa: {time.perf_counter() - inicio_gen:.4f} segundos ({tokens_generados} tokens)")
 
-            # Registro seguro en base de datos sin errores posicionales
+            # Registro en BD en segundo plano
             await loop.run_in_executor(
                 executor, 
                 registrar_log, 
