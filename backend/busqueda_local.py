@@ -1,6 +1,6 @@
-import fitz  # PyMuPDF
 import pickle
 import os
+import re
 
 BIBLIOTECA = {
     "calculo1": "calculus-volume-1.pdf", 
@@ -8,7 +8,7 @@ BIBLIOTECA = {
     "calculo3": "calculus-volume-3.pdf"
 }
 
-# 🌟 DICCIONARIO MATEMÁTICO ESTÁTICO (Reemplaza a Ollama para traducir en 0ms)
+# Diccionario matemático estático para traducir términos clave en 0ms
 DICCIONARIO_TECNICO = {
     "derivada": "derivative",
     "derivadas": "derivatives",
@@ -36,11 +36,17 @@ DICCIONARIO_TECNICO = {
 INDICES_CARGADOS = {}
 
 def cargar_indice_en_memoria(nombre_libro_clave):
-    """Carga el diccionario .pkl desde el disco si no se cargó antes."""
+    """Carga el diccionario completo (.pkl) con matriz TF-IDF y chunks de texto."""
     if nombre_libro_clave in INDICES_CARGADOS:
         return INDICES_CARGADOS[nombre_libro_clave]
         
+    # Ajustá la ruta según la estructura de tus carpetas (aquí asumo que están en /books)
     ruta_pkl = os.path.join(os.path.dirname(__file__), "books", f"{nombre_libro_clave}_index.pkl")
+    
+    # Si los dejaste en la raíz junto al script, podés usar este fallback:
+    if not os.path.exists(ruta_pkl):
+        ruta_pkl = f"indice_calculo.pkl" if nombre_libro_clave == "calculo1" else f"{nombre_libro_clave}_index.pkl"
+
     if os.path.exists(ruta_pkl):
         with open(ruta_pkl, "rb") as f:
             INDICES_CARGADOS[nombre_libro_clave] = pickle.load(f)
@@ -59,8 +65,12 @@ def seleccionar_libro(texto_consulta):
     return BIBLIOTECA["calculo1"], "calculo1"
 
 
-def buscar_en_pdf(pregunta_alumno):
-    # 1. Selección del Libro (Ahora nos devuelve el archivo y la clave interna)
+def buscar_en_pdf(pregunta_alumno, limite_chunks=3):
+    """
+    Busca de forma ultra rápida en el índice invertido utilizando pesos TF-IDF 
+    y devuelve los bloques de texto (chunks) más relevantes consolidados.
+    """
+    # 1. Selección del Libro
     libro_archivo, libro_clave = seleccionar_libro(pregunta_alumno)
     
     # 2. Tokenizar y limpiar la pregunta del alumno
@@ -77,51 +87,52 @@ def buscar_en_pdf(pregunta_alumno):
                 if clave in p or p in clave:
                     palabras_ingles.append(traduccion)
 
+    # Si no hubo traducción técnica directa, usamos los términos originales
     if not palabras_ingles:
         palabras_ingles = palabras_alumno[:3]
 
-    print(f"   [RAG] Libro: {libro_archivo} | Palabras clave en inglés: {palabras_ingles}")
+    print(f"   [RAG] Libro detectado: {libro_archivo} | Palabras de búsqueda: {palabras_ingles}")
     
     if not palabras_ingles:
         return None
         
-    # 🌟 4. INTRODUCCIÓN DEL ÍNDICE INVERTIDO
-    indice = cargar_indice_en_memoria(libro_clave)
-    if not indice:
-        print(f"   [AVISO] No se encontró el índice precalculado para {libro_clave}. Fallback a búsqueda lenta.")
-        return None # O podés meter tu bucle viejo acá como plan B
-
-    # Tomamos las dos palabras clave principales en inglés
-    palabras_filtro = palabras_ingles[:2]
-    
-    # Buscamos qué páginas contienen la primera palabra
-    paginas_candidatas = set(indice.get(palabras_filtro[0], []))
-    
-    # Si pusiste una segunda palabra clave, hacemos la intersección de conjuntos (matemática pura de conjuntos)
-    if len(palabras_filtro) > 1:
-        paginas_segunda_palabra = set(indice.get(palabras_filtro[1], []))
-        # El operador '&' nos da solo las páginas donde aparecen AMBAS palabras al mismo tiempo
-        paginas_candidatas = paginas_candidatas & paginas_segunda_palabra
-
-    if not paginas_candidatas:
-        print(f"   [AVISO] El índice no arrojó páginas con el filtro {palabras_filtro}")
+    # 4. Carga del paquete de indexación mapeado en memoria
+    paquete_datos = cargar_indice_en_memoria(libro_clave)
+    if not paquete_datos:
+        print(f"   [AVISO] No se encontró el índice binario estructurado para {libro_clave}.")
         return None
 
-    # Ordenamos las páginas para leer la primera que aparezca en el libro
-    pagina_elegida = sorted(list(paginas_candidatas))[0]
+    # Desempaquetamos la nueva estructura del .pkl
+    indice_invertido = paquete_datos["index"]
+    referencias_chunks = paquete_datos["chunks_reference"]
 
-    # 5. Ir directo a la página exacta (Sin hacer bucles pesados)
-    ruta_pdf = os.path.join(os.path.dirname(__file__), "books", libro_archivo)
-    try:
-        doc = fitz.open(ruta_pdf)
-        pagina = doc[pagina_elegida] # 🧠 Acceso directo O(1) por índice de array
-        texto_pagina = pagina.get_text().lower()
-        
-        print(f"   [EXITO - ÍNDICE INVERTIDO] Coincidencia RAG directa en {libro_archivo}, Pág {pagina_elegida + 1}")
-        contenido = texto_pagina[:3500] 
-        doc.close()
-        return contenido
-    except Exception as e:
-        print(f"   [ERROR CRÍTICO PDF] {e}")
+    # Diccionario para acumular los scores de relevancia por chunk
+    scores_candidatos = {}
+
+    # Acumulamos el score de relevancia matemática de los chunks candidatos
+    for palabra in palabras_ingles:
+        if palabra in indice_invertido:
+            for chunk_id, score_tf_idf in indice_invertido[palabra].items():
+                scores_candidatos[chunk_id] = scores_candidatos.get(chunk_id, 0.0) + score_tf_idf
+
+    if not scores_candidatos:
+        print(f"   [AVISO] No se encontraron coincidencias en el vocabulario para: {palabras_ingles}")
+        return None
+
+    # Ordenamos los candidatos de mayor a menor relevancia
+    candidatos_ordenados = sorted(scores_candidatos.items(), key=lambda x: x[1], reverse=True)
+    top_candidatos = candidatos_ordenados[:limite_chunks]
+
+    # Concatener los mejores fragmentos en un único string de contexto para alimentar tu LLM/Ollama
+    contexto_consolidado = ""
+    print(f"   [ÉXITO RAG] Se encontraron {len(top_candidatos)} chunks relevantes ordenados por TF-IDF:")
     
-    return None
+    for rank, (chunk_id, score_final) in enumerate(top_candidatos, 1):
+        ref = referencias_chunks[chunk_id]
+        print(f"       -> [{rank}] ID: {chunk_id} (Score: {score_final:.4f}) | Sección: {ref['seccion']} | Páginas PDF: {ref['paginas']}")
+        
+        # Le inyectamos una pequeña cabecera al texto para guiar al modelo si es necesario
+        contexto_consolidado += f"--- [Fragmento de la Sección {ref['seccion']}, Páginas del PDF: {ref['paginas']}] ---\n"
+        contexto_consolidado += f"{ref['contenido']}\n\n"
+
+    return contexto_consolidado.strip()
