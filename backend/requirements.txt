@@ -3,3 +3,5 @@ uvicorn
 ollama
 pydantic
 requests
+python-multipart
+pylti1p3
