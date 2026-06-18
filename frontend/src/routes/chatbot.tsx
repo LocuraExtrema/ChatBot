@@ -34,7 +34,7 @@ function StudentChat() {
   const { user, messages, addMessage } = useLti();
   const [input, setInput] = useState("");
   const [streamedText, setStreamedText] = useState(""); // 👈 Nuevo estado para el texto en tiempo real
-  
+
   // Nivel pedagógico estricto para conectar con main.py (1: Principiante, 2: Intermedio, 3: Avanzado)
   const [confidence, setConfidence] = useState<number>(1);
   const [saved, setSaved] = useState(false);
@@ -124,6 +124,7 @@ return (
       <AppHeader anonymousId="225" />
 
       <main className="pt-24 px-4 md:px-20 max-w-2xl mx-auto flex flex-col gap-6">
+      <main className="pt-24 px-4 md:px-20 max-w-4xl mx-auto flex flex-col gap-6">
         <section>
           <p className="text-on-surface-variant">
             Tu identificador anónimo:{" "}
@@ -133,6 +134,7 @@ return (
 
         {/* Chat */}
         <section className="flex flex-col h-[460px] rounded-2xl overflow-hidden border border-outline-variant/60 card-shadow bg-white/70 backdrop-blur">
+        <section className="flex flex-col h-[520px] md:h-[65vh] rounded-2xl overflow-hidden border border-outline-variant/60 card-shadow bg-white/70 backdrop-blur">
           <div
             ref={scrollRef}
             className="flex-1 overflow-y-auto p-4 flex flex-col gap-3 bg-white/40"
@@ -289,4 +291,3 @@ return (
       <BottomNav />
     </div>
   );
-}
