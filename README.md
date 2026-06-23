@@ -21,6 +21,8 @@ El flujo de datos e inferencia está optimizado para ejecutarse al 100% dentro d
 
 Este componente contiene el backend asincrónico desarrollado en FastAPI para el asistente pedagógico virtual (Faro). Implementa una arquitectura RAG local corriendo en **RunPod** utilizando **Ollama** con el modelo `phi3:mini`, permitiendo adaptar las respuestas en tiempo real según tres niveles de confianza pedagógica (Principiante, Intermedio y Avanzado).
 
+```
+
 ---
 
 # 🟩 PARTE 1: Configuración y Despliegue del Backend (RunPod)
@@ -62,8 +64,11 @@ chmod +x instalar_ollama.sh
 # 9. Levantar el backend 
 uvicorn main:app --host 0.0.0.0 --port 8000
 
+```
+
 # 🟦 PARTE 2: Configuración y Despliegue del Frontend (Local)
 
+```bash
 # 1. Generar un repositorio vacio de Git 
 git init asistente-frontend
 cd asistente-frontend
