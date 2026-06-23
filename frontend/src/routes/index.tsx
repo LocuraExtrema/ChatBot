@@ -77,7 +77,7 @@ function Portada() {
             Faro <span className="text-secondary">UNRaf</span>
           </h1>
           <p className="mt-3 text-[13px] font-semibold tracking-[0.3em] text-on-surface-variant uppercase">
-            Guidance through Clarity
+            Facilitador Académico de Recursos y Orientación
           </p>
         </div>
 
