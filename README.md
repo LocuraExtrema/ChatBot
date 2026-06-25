@@ -31,6 +31,8 @@ Para optimizar el almacenamiento y el uso de red en el Pod, se utiliza la caract
 
 Ejecutá esta secuencia de comandos en la terminal de tu RunPod (dentro de `/workspace`):
 
+En esta instancia todos los comandos ejecutados se realizarán sobre la terminal de RunPod
+
 ```bash
 cd /workspace
 
@@ -45,7 +47,7 @@ git remote add -f origin https://github.com/LocuraExtrema/ChatBot.git
 git config core.sparseCheckout true
 
 # 4. Indicar a Git la carpeta exacta que querés descargar (Reemplazar con tu ruta real si difiere)
-echo "backend/" >> .git/info/sparse-checkout
+echo "backend/" > .git/info/sparse-checkout 
 
 # 5. Realizar el Pull descargando únicamente la carpeta especificada
 git pull origin main
@@ -68,25 +70,46 @@ uvicorn main:app --host 0.0.0.0 --port 8000
 
 # 🟦 PARTE 2: Configuración y Despliegue del Frontend (Local)
 
+El frontend se deberá desplegar en el entorno local de la máquina del usuario.
+
+A partir de esta instancia todos los comandos a realizar se deberán ejectuar dentro de la terminal de VSCode o Git Bash (Windows)
+
+## Requisitos previos para levantar el frontend local 
+
+Antes de ejecutar estos comandos, verificar que la computadora tenga instalado:
+
+- Git 
+- Node.js 
+- npm  
+- VSCode 
+
 ```bash
-# 1. Generar un repositorio vacio de Git 
+# 1. Crear una carpeta de trabajo 
+mkdir faro 
+cd faro 
+
+# 2. Generar un repositorio vacio de Git 
 git init asistente-frontend
 cd asistente-frontend
 
-# 2. Vincular con el respositorio
+# 3. Vincular con el respositorio
 git remote add -f origin https://github.com/LocuraExtrema/ChatBot.git
 git config core.sparseCheckout true
 
-# 3. Indicar la carpeta del cliente y realizar el Pull
-echo "frontend/" >> .git/info/sparse-checkout
+# 4. Indicar la carpeta del cliente y realizar el Pull
+echo "frontend/" > .git/info/sparse-checkout 
 git pull origin main
 cd frontend/
 
-# 4. Configurar la URL del archivo .env 
-VITE_API_BASE_URL=https://<TU_POD_ID>-8000.proxy.runpod.net
+# 5. Configurar la URL del backend 
+# Dentro de la carpeta frontend/, crear un archivo llamado .env.local con el siguiente contenido: 
+VITE_API_BASE_URL=https://<TU_POD_ID>-8000.proxy.runpod.net Reemplazar <TU_POD_ID> por el identificador real del pod de RunPod. 
 
 # Instalar dependencias del proyecto
+# Dentro de la terminal 
 npm install
 
 # Levantar el entorno de desarrollo local (Vite)
 npm run dev
+
+```
