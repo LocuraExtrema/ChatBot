@@ -31,7 +31,7 @@ Para optimizar el almacenamiento y el uso de red en el Pod, se utiliza la caract
 
 Ejecutá esta secuencia de comandos en la terminal de tu RunPod (dentro de `/workspace`):
 
-En esta instancia todos los comandos ejecutados se realizarán sobre la terminal de RunPod
+En esta instancia todos los comandos ejecutados se realizarán sobre la terminal de JupyterLab de RunPod
 
 ```bash
 cd /workspace
@@ -103,7 +103,8 @@ cd frontend/
 
 # 5. Configurar la URL del backend 
 # Dentro de la carpeta frontend/, crear un archivo llamado .env.local con el siguiente contenido: 
-VITE_API_BASE_URL=https://<TU_POD_ID>-8000.proxy.runpod.net Reemplazar <TU_POD_ID> por el identificador real del pod de RunPod. 
+VITE_API_BASE_URL=https://<TU_POD_ID>-8000.proxy.runpod.net 
+# Reemplazar <TU_POD_ID> por el identificador real del pod de RunPod. 
 
 # Instalar dependencias del proyecto
 # Dentro de la terminal 
