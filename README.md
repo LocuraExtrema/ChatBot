@@ -60,7 +60,7 @@ pip install -r requirements.txt
 # 7. Otorgar permisos de ejecución al script de instalación
 chmod +x instalar_ollama.sh
 
-# 8. Ejecutar el instalador automático
+# 8. Ejecutar el instalador automático; Si este comando no se ejecuta, probar de nuevo en la misma u otra terminal
 ./instalar_ollama.sh
 
 # 9. Levantar el backend 
@@ -103,7 +103,7 @@ cd frontend/
 
 # 5. Configurar la URL del backend 
 # Dentro de la carpeta frontend/, crear un archivo llamado .env.local con el siguiente contenido: 
-VITE_API_BASE_URL=https://<TU_POD_ID>-8000.proxy.runpod.net 
+VITE_API_URL=https://<TU_POD_ID>-8000.proxy.runpod.net 
 # Reemplazar <TU_POD_ID> por el identificador real del pod de RunPod. 
 
 # Instalar dependencias del proyecto
