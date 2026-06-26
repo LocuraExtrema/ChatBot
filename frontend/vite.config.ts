@@ -17,7 +17,8 @@ export default defineConfig({
     server: {
       proxy: {
         '/api': {
-          target: 'http://localhost:8000',
+          // Usamos process.env directo. Si no existe en el .env.local, usa localhost por defecto.
+          target: process.env.VITE_API_URL || 'http://localhost:8000',
           changeOrigin: true,
           secure: false,
         }
