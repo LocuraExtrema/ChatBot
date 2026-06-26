@@ -46,7 +46,7 @@ git remote add -f origin https://github.com/LocuraExtrema/ChatBot.git
 # 3. Habilitar la característica de clonado disperso (Sparse Checkout)
 git config core.sparseCheckout true
 
-# 4. Indicar a Git la carpeta exacta que querés descargar (Reemplazar con tu ruta real si difiere)
+# 4. Indicar a Git la carpeta exacta que querés descargar (Reemplazar con tu ruta real si difiere); !!SI SE UTILIZA CMD QUITAR COMILLAS DE "backend/"
 echo "backend/" > .git/info/sparse-checkout 
 
 # 5. Realizar el Pull descargando únicamente la carpeta especificada
@@ -97,9 +97,19 @@ git remote add -f origin https://github.com/LocuraExtrema/ChatBot.git
 git config core.sparseCheckout true
 
 # 4. Indicar la carpeta del cliente y realizar el Pull
+# !!SI SE UTILIZA CMD Seguir estos comandos
+
+# USO con CMD  
+echo frontend/ > .git/info/sparse-checkout
+git checkout main
+git pull origin main
+cd frontend/
+
+# USO con git
 echo "frontend/" > .git/info/sparse-checkout 
 git pull origin main
 cd frontend/
+
 
 # 5. Configurar la URL del backend 
 # Dentro de la carpeta frontend/, crear un archivo llamado .env.local con el siguiente contenido: 
